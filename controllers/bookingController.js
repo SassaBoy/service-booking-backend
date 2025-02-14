@@ -9,7 +9,6 @@ exports.bookService = async (req, res) => {
   try {
     const { userId, providerId, serviceName, date, time, price, address } = req.body;
 
-
     console.log("Request body received:", req.body);
 
     // Identify missing fields
@@ -20,8 +19,7 @@ exports.bookService = async (req, res) => {
     if (!date) missingFields.push("date");
     if (!time) missingFields.push("time");
     if (!price) missingFields.push("price");
-    if (!address) missingFields.push("address"); // Ensure address is required
-    
+    if (!address) missingFields.push("address"); 
 
     if (missingFields.length > 0) {
       console.error("Validation error: Missing fields -", missingFields.join(", "));
@@ -55,6 +53,20 @@ exports.bookService = async (req, res) => {
 
     console.log(`Client found: ${client.name} (${client.email}, ${client.phone})`);
 
+    // **Check if this is the provider's first booking**
+    const existingBookings = await Booking.find({ providerId });
+    if (existingBookings.length === 0) {
+      console.log(`First booking for provider ${providerId}. Updating payment status to "Unpaid".`);
+
+      // Update the provider's payment status
+      await ProviderDetails.findOneAndUpdate(
+        { userId: providerId },
+        { paymentStatus: "Unpaid" },
+        { new: true }
+      );
+    }
+
+    // Create the booking
     const booking = new Booking({
       userId,
       providerId,
@@ -62,29 +74,28 @@ exports.bookService = async (req, res) => {
       date,
       time,
       price,
-      address, // Include address in booking
-      status: "pending", // Default status
+      address, 
+      status: "pending",
     });
-    
 
     await booking.save();
     console.log("Booking saved:", booking);
 
+    // Create a notification
     const notification = new Notification({
       userId: providerId,
       title: "New Booking Received",
       message: JSON.stringify({
-        serviceName: serviceName,
-        date: date,
-        time: time,
-        price: price,
+        serviceName,
+        date,
+        time,
+        price,
         clientName: client.name,
         clientEmail: client.email,
         clientPhone: client.phone,
-        address: address, // ✅ Ensure the address is included in the notification message
+        address,
       }),
     });
-    
 
     await notification.save();
     console.log("Notification saved:", notification);
@@ -103,56 +114,43 @@ exports.bookService = async (req, res) => {
       to: provider.email,
       subject: `New Booking Notification - ${serviceName}`,
       html: `
-        <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: auto; border: 1px solid #e0e0e0; border-radius: 8px; overflow: hidden;">
-          <div style="background-color: #1a237e; color: #fff; padding: 20px;">
-            <h2 style="margin: 0; font-size: 24px; text-align: center;">New Booking Received</h2>
-          </div>
-          <div style="padding: 20px;">
-            <p style="margin: 0 0 15px;">Dear <strong>${provider.name}</strong>,</p>
-            <p style="margin: 0 0 15px;">
-              You have received a new booking request from <strong>${client.name}</strong>. Please find the details below:
-            </p>
-            <table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
-              <tr>
-                <td style="padding: 8px; border: 1px solid #e0e0e0; background-color: #f9f9f9; font-weight: bold;">Service</td>
-                <td style="padding: 8px; border: 1px solid #e0e0e0;">${serviceName}</td>
-              </tr>
-              <tr>
-                <td style="padding: 8px; border: 1px solid #e0e0e0; background-color: #f9f9f9; font-weight: bold;">Date</td>
-                <td style="padding: 8px; border: 1px solid #e0e0e0;">${date}</td>
-              </tr>
-              <tr>
-                <td style="padding: 8px; border: 1px solid #e0e0e0; background-color: #f9f9f9; font-weight: bold;">Time</td>
-                <td style="padding: 8px; border: 1px solid #e0e0e0;">${time}</td>
-              </tr>
-              <tr>
-                <td style="padding: 8px; border: 1px solid #e0e0e0; background-color: #f9f9f9; font-weight: bold;">Price</td>
-                <td style="padding: 8px; border: 1px solid #e0e0e0;">N$${price}</td>
-              </tr>
-              <tr>
-                <td style="padding: 8px; border: 1px solid #e0e0e0; background-color: #f9f9f9; font-weight: bold;">Client Email</td>
-                <td style="padding: 8px; border: 1px solid #e0e0e0;">${client.email}</td>
-              </tr>
+        <div style="font-family: Arial, sans-serif; padding: 20px;">
+          <h2 style="color: #1a237e;">New Booking Received</h2>
+          <p>Dear <strong>${provider.name}</strong>,</p>
+          <p>You have received a new booking request from <strong>${client.name}</strong>. Please find the details below:</p>
+          <table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
             <tr>
-  <td style="padding: 8px; border: 1px solid #e0e0e0; background-color: #f9f9f9; font-weight: bold;">Client Phone</td>
-  <td style="padding: 8px; border: 1px solid #e0e0e0;">${client.phone}</td>
-</tr>
-<tr>
-  <td style="padding: 8px; border: 1px solid #e0e0e0; background-color: #f9f9f9; font-weight: bold;">Client Address</td>
-  <td style="padding: 8px; border: 1px solid #e0e0e0;">${address}</td>
-</tr>
-
-            </table>
-            <p style="margin: 0 0 15px;">
-              To view more details, please log in to your dashboard.
-            </p>
-            <p style="margin: 0 0 15px;">Thank you for using our platform!</p>
-            <p style="margin: 0 0 15px;">Best regards,</p>
-            <p style="margin: 0 0 15px; font-weight: bold;">The Opaleka Team</p>
-          </div>
-          <div style="background-color: #f5f5f5; color: #888; text-align: center; padding: 10px; font-size: 12px;">
-            <p style="margin: 0;">This email was sent automatically. Please do not reply.</p>
-          </div>
+              <td style="padding: 8px; border: 1px solid #e0e0e0; background-color: #f9f9f9; font-weight: bold;">Service</td>
+              <td style="padding: 8px; border: 1px solid #e0e0e0;">${serviceName}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px; border: 1px solid #e0e0e0; background-color: #f9f9f9; font-weight: bold;">Date</td>
+              <td style="padding: 8px; border: 1px solid #e0e0e0;">${date}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px; border: 1px solid #e0e0e0; background-color: #f9f9f9; font-weight: bold;">Time</td>
+              <td style="padding: 8px; border: 1px solid #e0e0e0;">${time}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px; border: 1px solid #e0e0e0; background-color: #f9f9f9; font-weight: bold;">Price</td>
+              <td style="padding: 8px; border: 1px solid #e0e0e0;">N$${price}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px; border: 1px solid #e0e0e0; background-color: #f9f9f9; font-weight: bold;">Client Email</td>
+              <td style="padding: 8px; border: 1px solid #e0e0e0;">${client.email}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px; border: 1px solid #e0e0e0; background-color: #f9f9f9; font-weight: bold;">Client Phone</td>
+              <td style="padding: 8px; border: 1px solid #e0e0e0;">${client.phone}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px; border: 1px solid #e0e0e0; background-color: #f9f9f9; font-weight: bold;">Client Address</td>
+              <td style="padding: 8px; border: 1px solid #e0e0e0;">${address}</td>
+            </tr>
+          </table>
+          <p>To view more details, please log in to your dashboard.</p>
+          <p>Best regards,</p>
+          <p><strong>Opaleka Team</strong></p>
         </div>
       `,
     };
@@ -167,14 +165,6 @@ exports.bookService = async (req, res) => {
     });
   } catch (error) {
     console.error("Error booking service:", error.message);
-
-    if (error.name === "ValidationError") {
-      return res.status(400).json({
-        success: false,
-        message: "Validation error occurred.",
-      });
-    }
-
     return res.status(500).json({
       success: false,
       message: "An error occurred while booking the service.",
