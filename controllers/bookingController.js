@@ -3,6 +3,7 @@ const User = require("../models/userModel");
 const Booking = require("../models/BookingSchema"); // Import the Booking model
 const nodemailer = require("nodemailer");
 const { Op } = require('sequelize');
+const ProviderDetails = require("../models/providerDetailsModel");
 
 
 exports.bookService = async (req, res) => {
