@@ -84,18 +84,27 @@ const getProviderReviews = async (req, res) => {
   try {
     const actualProviderId = req.user.id;
 
-    const reviews = await Review.find({ providerId: actualProviderId })
-      .populate("userId", "name profileImage") // Use 'profileImage' instead of 'avatar'
+       const reviews = await Review.find({ providerId: actualProviderId })
+      .populate({
+        path: "userId",
+        select: "name profileImage",
+        match: { _id: { $exists: true } }, // Ensures only populated user data is included
+      })
       .sort({ createdAt: -1 });
+
 
     const averageRating = reviews.length
       ? (reviews.reduce((sum, review) => sum + review.rating, 0) / reviews.length).toFixed(1)
       : 0;
 
-    // Log each user's profileImage for debugging
-    reviews.forEach((review) => {
-      console.log("Profile Image URL:", review.userId.profileImage); // Logs the correct field
+     reviews.forEach((review) => {
+      if (review.userId) {
+        console.log("Profile Image URL:", review.userId.profileImage);
+      } else {
+        console.warn("Warning: userId is null for review ID:", review._id);
+      }
     });
+
 
     res.status(200).json({
       success: true,
