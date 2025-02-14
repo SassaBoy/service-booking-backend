@@ -504,25 +504,48 @@ exports.completeJob = async (req, res) => {
 
 exports.deleteCompletedJob = async (req, res) => {
   const { bookingId } = req.params;
-  console.log('Deleting completed job with ID:', bookingId);
+  console.log(`Attempting to delete completed job with ID: ${bookingId}`);
 
   try {
-    const booking = await Booking.findByIdAndDelete(
-      bookingId,
-      { status: 'completed' },
-      { new: true }
-    );
-
+    // ✅ Check if the booking exists
+    const booking = await Booking.findById(bookingId);
+    
     if (!booking) {
-      return res.status(404).json({ success: false, message: 'Completed job not found.' });
+      console.error(`Booking with ID ${bookingId} not found.`);
+      return res.status(404).json({
+        success: false,
+        message: 'Completed job not found or already deleted.',
+      });
     }
 
-    res.json({ success: true, message: 'Completed job deleted successfully.' });
+    // ✅ Ensure the status is 'completed' before deleting
+    if (booking.status !== 'completed') {
+      console.error(`Booking ID ${bookingId} is not marked as completed.`);
+      return res.status(400).json({
+        success: false,
+        message: 'This job is not marked as completed and cannot be deleted.',
+      });
+    }
+
+    // ✅ Proceed with deletion
+    await Booking.findByIdAndDelete(bookingId);
+    
+    console.log(`Booking with ID ${bookingId} deleted successfully.`);
+    return res.status(200).json({
+      success: true,
+      message: 'Completed job deleted successfully.',
+    });
+
   } catch (error) {
-    console.error('Error deleting completed job:', error);
-    res.status(500).json({ success: false, message: 'Internal server error.' });
+    console.error(`Error deleting booking ID ${bookingId}:`, error);
+    return res.status(500).json({
+      success: false,
+      message: 'Internal server error while deleting the completed job.',
+      error: error.message,
+    });
   }
 };
+
 
 exports.getAllHistory = async (req, res) => {
   try {
