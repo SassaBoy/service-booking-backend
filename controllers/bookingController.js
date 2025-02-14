@@ -205,7 +205,7 @@ exports.getBookingsForProvider = async (req, res) => {
       bookings: mappedBookings,
     });
   } catch (error) {
-    console.error(`Error fetching ${status} bookings:`, error);
+   
     return res.status(500).json({
       success: false,
       message: "An error occurred while fetching bookings.",
