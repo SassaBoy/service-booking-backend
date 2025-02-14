@@ -385,27 +385,45 @@ exports.rejectBooking = async (req, res) => {
 
 exports.deleteRejectedRecord = async (req, res) => {
   const { bookingId } = req.params;
-  console.log('Deleting rejected record with ID:', bookingId);
+  console.log(`Attempting to delete rejected record with ID: ${bookingId}`);
 
   try {
-
-     // Find the booking and update its status
-     const booking = await Booking.findByIdAndDelete(
-      bookingId,
-      { status: 'rejected' },
-      { new: true }
-    );
-    console.log('Query Result:', booking); // Log the query result
+    // ✅ Check if the booking exists
+    const booking = await Booking.findById(bookingId);
 
     if (!booking) {
-      return res.status(400).json({ success: false, message: 'Rejected booking not found.' });
+      console.error(`Rejected booking with ID ${bookingId} not found.`);
+      return res.status(404).json({
+        success: false,
+        message: 'Rejected booking not found or already deleted.',
+      });
     }
 
- 
-    res.json({ success: true, message: 'Rejected booking deleted successfully.' });
+    // ✅ Ensure the status is 'rejected' before deleting
+    if (booking.status !== 'rejected') {
+      console.error(`Booking ID ${bookingId} is not marked as rejected.`);
+      return res.status(400).json({
+        success: false,
+        message: 'This booking is not marked as rejected and cannot be deleted.',
+      });
+    }
+
+    // ✅ Proceed with deletion
+    await Booking.findByIdAndDelete(bookingId);
+    
+    console.log(`Rejected booking with ID ${bookingId} deleted successfully.`);
+    return res.status(200).json({
+      success: true,
+      message: 'Rejected booking deleted successfully.',
+    });
+
   } catch (error) {
-    console.error('Error deleting rejected booking:', error);
-    res.status(500).json({ success: false, message: 'Internal server error.' });
+    console.error(`Error deleting rejected booking ID ${bookingId}:`, error);
+    return res.status(500).json({
+      success: false,
+      message: 'Internal server error while deleting the rejected booking.',
+      error: error.message,
+    });
   }
 };
 
