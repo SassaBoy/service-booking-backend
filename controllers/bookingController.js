@@ -205,6 +205,7 @@ exports.getBookingsForProvider = async (req, res) => {
       phone: booking.userId.phone,
       date: booking.date,
       time: booking.time,
+      price: booking.price,
       address: booking.address,
       profileImage: booking.userId.profileImage,
       createdAt: booking.createdAt,
@@ -586,7 +587,7 @@ exports.getAllHistory = async (req, res) => {
       deletedByUsers: { $ne: clientId }, // Exclude deleted bookings for this user
     })
       .populate('providerId', 'name profileImage email phone')
-      .select('serviceName providerId date time address createdAt')
+      .select('serviceName providerId date time address price createdAt')
       .sort({ createdAt: -1 });
 
     console.log('🔥 Pending Bookings Found:', JSON.stringify(pendingHistory, null, 2));
