@@ -2359,7 +2359,7 @@ exports.unpaidReminder = async (req, res) => {
   }
 };
 
-cron.schedule("0 8 * * 3", async () => {  // ✅ Runs at 08:00 UTC (which is 10:00 AM in Namibia)
+cron.schedule("0 8 * * 1", async () => {  // ✅ Runs at 08:00 UTC (which is 10:00 AM in Namibia)
   try {
     console.log("📩 Sending weekly unpaid reminders...");
 
@@ -2438,3 +2438,80 @@ cron.schedule("0 8 * * 3", async () => {  // ✅ Runs at 08:00 UTC (which is 10:
     console.error("❌ Error sending weekly reminders:", error);
   }
 });
+
+
+exports.verifyPassword = async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({
+        success: false,
+        message: "Email and password are required.",
+      });
+    }
+
+    // Find user by email
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found.",
+      });
+    }
+
+    // Compare provided password with stored hash
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) {
+      return res.status(400).json({
+        success: false,
+        message: "Password is incorrect.",
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Password verified successfully.",
+    });
+  } catch (error) {
+    console.error("Error verifying password:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to verify password.",
+    });
+  }
+};
+
+exports.updatePassword = async (req, res) => {
+  try {
+      const { userId } = req.params;
+      const { oldPassword, newPassword } = req.body;
+
+      if (!oldPassword || !newPassword) {
+          return res.status(400).json({ success: false, message: "Both old and new passwords are required." });
+      }
+
+      // Fetch user from DB
+      const user = await User.findById(userId);
+      if (!user) {
+          return res.status(404).json({ success: false, message: "User not found." });
+      }
+
+      // Verify old password
+      const isMatch = await bcrypt.compare(oldPassword, user.password);
+      if (!isMatch) {
+          return res.status(400).json({ success: false, message: "Incorrect current password." });
+      }
+
+      // Hash new password before saving
+      const salt = await bcrypt.genSalt(10);
+      user.password = await bcrypt.hash(newPassword, salt);
+
+      await user.save();
+
+      res.json({ success: true, message: "Password updated successfully." });
+  } catch (error) {
+      console.error("Error updating password:", error);
+      res.status(500).json({ success: false, message: "Internal server error." });
+  }
+};
