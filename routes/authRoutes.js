@@ -1,7 +1,7 @@
 const express = require("express");
 const multer = require("multer");
 const path = require("path");
-const { registerUser, loginUser, getUserDetails,getCategories, updateProfilePicture,getUnreadNotificationCount,sendNotification,searchUsers,getNotifications, getUserDetails1,getVerifiedProviders, updateUserDetails, logout, requestPasswordReset, resetPassword, completeProfile, uploadDocuments, verifyDocuments, updatePaymentStatus, markNotificationAsRead, uploadService, getServices, getPendingProviders, searchPendingProviders, getProviderDetails, getProviderServiceDetails, addCustomService, adminSearchToDelete, deleteUser, getClientsCount, getProvidersCount, getFreeProvidersCount, getAllUsersCount, deleteNotificationByUser, deleteAccount, getProviderReviews, deleteService, addServiceToProvider, addImage, deleteImage, unpaidReminder } = require("../controllers/authController");
+const { registerUser, loginUser, getUserDetails,getCategories, updateProfilePicture,getUnreadNotificationCount,sendNotification,searchUsers,getNotifications, getUserDetails1,getVerifiedProviders, updateUserDetails, logout, requestPasswordReset, resetPassword, completeProfile, uploadDocuments, verifyDocuments, updatePaymentStatus, markNotificationAsRead, uploadService, getServices, getPendingProviders, searchPendingProviders, getProviderDetails, getProviderServiceDetails, addCustomService, adminSearchToDelete, deleteUser, getClientsCount, getProvidersCount, getFreeProvidersCount, getAllUsersCount, deleteNotificationByUser, deleteAccount, getProviderReviews, deleteService, addServiceToProvider, addImage, deleteImage, unpaidReminder, verifyPassword, updatePassword } = require("../controllers/authController");
 const { protect } = require("../middleware/authMiddleware");
 const User = require("../models/userModel");
 
@@ -281,5 +281,9 @@ router.get("/unpaid-reminder", protect, async (req, res, next) => {
     next(error);
   }
 });
+
+router.post("/verify-password", verifyPassword);
+
+router.put("/update-password/:userId", updatePassword);
 
 module.exports = router;
