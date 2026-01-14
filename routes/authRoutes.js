@@ -4,7 +4,7 @@ const path = require("path");
 const { registerUser, loginUser, getUserDetails,getCategories, updateProfilePicture,getUnreadNotificationCount,sendNotification,searchUsers,getNotifications, getUserDetails1,getVerifiedProviders, updateUserDetails, logout, requestPasswordReset, resetPassword, completeProfile, uploadDocuments, verifyDocuments, updatePaymentStatus, markNotificationAsRead, uploadService, getServices, getPendingProviders, searchPendingProviders, getProviderDetails, getProviderServiceDetails, addCustomService, adminSearchToDelete, deleteUser, getClientsCount, getProvidersCount, getFreeProvidersCount, getAllUsersCount, deleteNotificationByUser, deleteAccount, getProviderReviews, deleteService, addServiceToProvider, addImage, deleteImage, unpaidReminder, verifyPassword, updatePassword } = require("../controllers/authController");
 const { protect } = require("../middleware/authMiddleware");
 const User = require("../models/userModel");
-
+const fs = require('fs');
 const router = express.Router();
 
 // Configure Multer
@@ -156,7 +156,30 @@ router.get("/user-details", protect, getUserDetails);
 // Logout Route
 router.post("/logout", logout);
 
-router.put("/update-profile-picture/:userId", upload.single("profileImage"), protect, updateProfilePicture);
+const uploadDir = 'uploads/';
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir, { recursive: true });
+}
+
+// Updated profile picture upload route
+router.put(
+  "/update-profile-picture/:userId",
+  protect, // Auth first
+  upload.single("profileImage"), // Multer handles the file AFTER auth
+  async (req, res, next) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ success: false, message: "No file uploaded." });
+      }
+
+      // Call your controller
+      await updateProfilePicture(req, res);
+    } catch (error) {
+      console.error("Profile picture upload error:", error);
+      next(error);
+    }
+  }
+);
 
 // Get User Details
 router.get("/get-user", protect, getUserDetails1);
