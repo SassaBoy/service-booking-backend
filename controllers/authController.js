@@ -999,7 +999,7 @@ exports.getUserDetails1 = async (req, res) => {
     // Ensure images array exists & format URLs correctly
     if (completeProfile && completeProfile.images) {
       completeProfile.images = completeProfile.images.map((img) =>
-        img.startsWith("http") ? img : `http://192.168.8.138:5001/${img.replace(/\\/g, "/")}`
+        img.startsWith("http") ? img : `https://service-booking-backend-eb9i.onrender.com/${img.replace(/\\/g, "/")}`
       );
     } else {
       completeProfile = {
