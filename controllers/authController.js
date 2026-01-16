@@ -409,28 +409,61 @@ exports.completeProfile = async (req, res) => {
   }
 };
 
-
 exports.uploadDocuments = async (req, res) => {
   try {
+    console.log("=== UPLOAD DOCUMENTS REQUEST ===");
+    console.log("Body:", req.body);
+    console.log("File:", req.file);
+    console.log("Headers:", req.headers);
+
     const { email } = req.body;
 
     // Validate email
     if (!email) {
-      return res.status(400).json({ success: false, message: "Email is required." });
+      console.error("❌ Email missing from request");
+      return res.status(400).json({ 
+        success: false, 
+        message: "Email is required." 
+      });
     }
+
+    console.log("📧 Email received:", email);
+
+    // ✅ Check if file is uploaded FIRST
+    if (!req.file) {
+      console.error("❌ No file in request");
+      return res.status(400).json({
+        success: false,
+        message: "No file uploaded. Please select a document.",
+      });
+    }
+
+    console.log("📄 File received:", req.file.originalname, req.file.size, "bytes");
 
     // Check if the user exists and is a Provider
     const user = await User.findOne({ email });
-    if (!user || user.role !== "Provider") {
+    if (!user) {
+      console.error("❌ User not found for email:", email);
+      return res.status(404).json({
+        success: false,
+        message: "User not found with this email address.",
+      });
+    }
+
+    console.log("✅ User found:", user.name, "Role:", user.role);
+
+    if (user.role !== "Provider") {
+      console.error("❌ User is not a Provider. Role:", user.role);
       return res.status(400).json({
         success: false,
-        message: "Invalid email or user is not a Provider.",
+        message: "This email is not registered as a Provider.",
       });
     }
 
     // Check if the profile is completed
     const completeProfile = await CompleteProfile.findOne({ userId: user._id });
     if (!completeProfile) {
+      console.error("❌ CompleteProfile not found for user:", user._id);
       return res.status(400).json({
         success: false,
         message: "Please complete your profile before uploading documents.",
@@ -438,13 +471,7 @@ exports.uploadDocuments = async (req, res) => {
       });
     }
 
-    // ✅ Check if a file is uploaded
-    if (!req.file) {
-      return res.status(400).json({
-        success: false,
-        message: "No file uploaded. Please select a document.",
-      });
-    }
+    console.log("✅ CompleteProfile found");
 
     // Normalize document path
     const document = {
@@ -454,17 +481,23 @@ exports.uploadDocuments = async (req, res) => {
       },
     };
 
+    console.log("📁 Document info:", document);
+
     // Create or update ProviderDetails with document
     let providerDetails = await ProviderDetails.findOne({ userId: user._id });
     if (!providerDetails) {
+      console.log("📝 Creating new ProviderDetails");
       providerDetails = new ProviderDetails({
         userId: user._id,
         documents: document,
       });
     } else {
+      console.log("📝 Updating existing ProviderDetails");
       providerDetails.documents = document;
     }
+    
     await providerDetails.save();
+    console.log("✅ ProviderDetails saved successfully");
 
     // ✅ Fetch user & profile details for the email
     const profileData = {
@@ -478,14 +511,18 @@ exports.uploadDocuments = async (req, res) => {
       description: completeProfile.description || "No description provided",
     };
 
+    console.log("📋 Profile data prepared for email");
+
     // ✅ Email setup
     const transporter = nodemailer.createTransport({
       service: "Gmail",
       auth: {
-        user: process.env.EMAIL_USER, // Your email
-        pass: process.env.EMAIL_PASS, // Your email password
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS,
       },
     });
+
+    console.log("📧 Preparing to send email...");
 
     // ✅ Email content
     const mailOptions = {
@@ -503,7 +540,7 @@ exports.uploadDocuments = async (req, res) => {
           <p><strong>Years of Experience:</strong> ${profileData.yearsOfExperience}</p>
           <p><strong>Services Offered:</strong> ${profileData.services}</p>
           <p><strong>Description:</strong> ${profileData.description}</p>
-          <p style="margin-top: 20px; font-size: 14px; color: #555;">The attached document contains the applicant’s verification file.</p>
+          <p style="margin-top: 20px; font-size: 14px; color: #555;">The attached document contains the applicant's verification file.</p>
         </div>
       `,
       attachments: [
@@ -514,22 +551,41 @@ exports.uploadDocuments = async (req, res) => {
       ],
     };
 
-    await transporter.sendMail(mailOptions);
+    // Send email (with error handling)
+    try {
+      await transporter.sendMail(mailOptions);
+      console.log("✅ Email sent successfully to gewersdeon61@gmail.com");
+    } catch (emailError) {
+      console.error("⚠️ Email sending failed:", emailError.message);
+      console.error("Email error details:", emailError);
+      // Don't fail the whole request if email fails
+    }
 
-    // ✅ Return only the document in response
-    res.status(200).json({
+    // ✅ Return success response
+    console.log("✅ Upload completed successfully");
+    console.log("=== END UPLOAD DOCUMENTS ===");
+    
+    return res.status(200).json({
       success: true,
       message: "Document uploaded successfully.",
       document,
     });
 
   } catch (error) {
-    console.error("Error uploading document:", error);
-    res.status(500).json({ success: false, message: "Failed to upload document." });
+    console.error("❌❌❌ CRITICAL ERROR in uploadDocuments ❌❌❌");
+    console.error("Error name:", error.name);
+    console.error("Error message:", error.message);
+    console.error("Error stack:", error.stack);
+    
+    // More detailed error response
+    return res.status(500).json({ 
+      success: false, 
+      message: "Failed to upload document.",
+      error: error.message, // ✅ Always send error message for debugging
+      errorDetails: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
   }
 };
-
-
 
 
 exports.verifyDocuments = async (req, res) => {
