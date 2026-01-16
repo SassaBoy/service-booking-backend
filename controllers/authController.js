@@ -512,13 +512,21 @@ exports.uploadDocuments = async (req, res) => {
 
     console.log("📋 Profile data prepared for email");
 
-    // ✅ Email setup
+    // ✅ Email setup with explicit configuration for better compatibility
     const transporter = nodemailer.createTransport({
-      service: "Gmail",
+      host: "smtp.gmail.com",
+      port: 587,
+      secure: false, // Use STARTTLS
       auth: {
         user: process.env.EMAIL_USER,
         pass: process.env.EMAIL_PASS,
       },
+      tls: {
+        rejectUnauthorized: false // Accept self-signed certificates
+      },
+      connectionTimeout: 10000, // 10 seconds
+      greetingTimeout: 10000,
+      socketTimeout: 10000,
     });
 
     console.log("📧 Preparing to send email...");
@@ -598,9 +606,7 @@ exports.uploadDocuments = async (req, res) => {
       errorDetails: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
   }
-};;
-
-
+};
 exports.verifyDocuments = async (req, res) => {
   try {
     const { email, verificationStatus, adminNotes } = req.body;
