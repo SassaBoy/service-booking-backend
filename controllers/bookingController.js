@@ -10,7 +10,8 @@ exports.bookService = async (req, res) => {
   try {
     const { userId, providerId, serviceName, date, time, price, address } = req.body;
 
-    console.log("Request body received:", req.body);
+    console.log("=== BOOKING REQUEST RECEIVED ===");
+    console.log("Request body:", JSON.stringify(req.body, null, 2));
 
     // Identify missing fields
     const missingFields = [];
@@ -23,51 +24,61 @@ exports.bookService = async (req, res) => {
     if (!address) missingFields.push("address"); 
 
     if (missingFields.length > 0) {
-      console.error("Validation error: Missing fields -", missingFields.join(", "));
+      console.error("❌ Validation error: Missing fields -", missingFields.join(", "));
       return res.status(400).json({
         success: false,
         message: `Validation error: Missing fields - ${missingFields.join(", ")}.`,
       });
     }
 
+    console.log("✅ All required fields present");
+
     // Check if the provider exists
     const provider = await User.findById(providerId);
     if (!provider) {
-      console.error(`Provider not found: providerId=${providerId}`);
+      console.error(`❌ Provider not found: providerId=${providerId}`);
       return res.status(404).json({
         success: false,
         message: "Service provider not found.",
       });
     }
 
-    console.log(`Provider found: ${provider.name} (${provider.email})`);
+    console.log(`✅ Provider found: ${provider.name} (${provider.email})`);
 
     // Check if the client exists
     const client = await User.findById(userId);
     if (!client) {
-      console.error(`Client not found: userId=${userId}`);
+      console.error(`❌ Client not found: userId=${userId}`);
       return res.status(404).json({
         success: false,
         message: "Client not found.",
       });
     }
 
-    console.log(`Client found: ${client.name} (${client.email}, ${client.phone})`);
+    console.log(`✅ Client found: ${client.name} (${client.email}, ${client.phone || 'No phone'})`);
 
-    // **Check if this is the provider's first booking**
+    // Check if this is the provider's first booking
     const existingBookings = await Booking.find({ providerId });
+    console.log(`📊 Existing bookings for provider: ${existingBookings.length}`);
+    
     if (existingBookings.length === 0) {
-      console.log(`First booking for provider ${providerId}. Updating payment status to "Unpaid".`);
+      console.log(`🎯 First booking for provider ${providerId}. Updating payment status to "Unpaid".`);
 
-      // Update the provider's payment status
-      await ProviderDetails.findOneAndUpdate(
+      const updateResult = await ProviderDetails.findOneAndUpdate(
         { userId: providerId },
         { paymentStatus: "Unpaid" },
         { new: true }
       );
+      
+      if (updateResult) {
+        console.log(`✅ Provider payment status updated to: ${updateResult.paymentStatus}`);
+      } else {
+        console.warn(`⚠️ Could not find ProviderDetails for userId: ${providerId}`);
+      }
     }
 
     // Create the booking
+    console.log("📝 Creating booking...");
     const booking = new Booking({
       userId,
       providerId,
@@ -80,9 +91,10 @@ exports.bookService = async (req, res) => {
     });
 
     await booking.save();
-    console.log("Booking saved:", booking);
+    console.log("✅ Booking saved:", booking._id);
 
     // Create a notification
+    console.log("🔔 Creating notification...");
     const notification = new Notification({
       userId: providerId,
       title: "New Booking Received",
@@ -93,15 +105,16 @@ exports.bookService = async (req, res) => {
         price,
         clientName: client.name,
         clientEmail: client.email,
-        clientPhone: client.phone,
+        clientPhone: client.phone || "Not provided",
         address,
       }),
     });
 
     await notification.save();
-    console.log("Notification saved:", notification);
+    console.log("✅ Notification saved:", notification._id);
 
     // Send email notification to the provider
+    console.log("📧 Preparing email...");
     const transporter = nodemailer.createTransport({
       service: "Gmail",
       auth: {
@@ -111,68 +124,93 @@ exports.bookService = async (req, res) => {
     });
 
     // Format date and time
-const formattedDate = moment(date).format("dddd, MMMM D, YYYY"); // Example: "Saturday, January 26, 2025"
-const formattedTime = moment(time, "HH:mm").format("hh:mm A");   // Example: "02:30 PM"
+    const formattedDate = moment(date).format("dddd, MMMM D, YYYY");
+    const formattedTime = moment(time, "HH:mm").format("hh:mm A");
 
-const mailOptions = {
-  from: process.env.EMAIL_USER,
-  to: provider.email,
-  subject: `New Booking Notification - ${serviceName}`,
-  html: `
-    <div style="font-family: Arial, sans-serif; padding: 20px;">
-      <h2 style="color: #1a237e;">New Booking Received</h2>
-      <p>Dear <strong>${provider.name}</strong>,</p>
-      <p>You have received a new booking request from <strong>${client.name}</strong>. Please find the details below:</p>
-      <table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
-        <tr>
-          <td style="padding: 8px; border: 1px solid #e0e0e0; background-color: #f9f9f9; font-weight: bold;">Service</td>
-          <td style="padding: 8px; border: 1px solid #e0e0e0;">${serviceName}</td>
-        </tr>
-        <tr>
-          <td style="padding: 8px; border: 1px solid #e0e0e0; background-color: #f9f9f9; font-weight: bold;">Date</td>
-          <td style="padding: 8px; border: 1px solid #e0e0e0;">${formattedDate}</td>
-        </tr>
-        <tr>
-          <td style="padding: 8px; border: 1px solid #e0e0e0; background-color: #f9f9f9; font-weight: bold;">Time</td>
-          <td style="padding: 8px; border: 1px solid #e0e0e0;">${formattedTime}</td>
-        </tr>
-        <tr>
-          <td style="padding: 8px; border: 1px solid #e0e0e0; background-color: #f9f9f9; font-weight: bold;">Price</td>
-          <td style="padding: 8px; border: 1px solid #e0e0e0;">N$${price}</td>
-        </tr>
-        <tr>
-          <td style="padding: 8px; border: 1px solid #e0e0e0; background-color: #f9f9f9; font-weight: bold;">Client Email</td>
-          <td style="padding: 8px; border: 1px solid #e0e0e0;">${client.email}</td>
-        </tr>
-        <tr>
-          <td style="padding: 8px; border: 1px solid #e0e0e0; background-color: #f9f9f9; font-weight: bold;">Client Phone</td>
-          <td style="padding: 8px; border: 1px solid #e0e0e0;">${client.phone}</td>
-        </tr>
-        <tr>
-          <td style="padding: 8px; border: 1px solid #e0e0e0; background-color: #f9f9f9; font-weight: bold;">Client Address</td>
-          <td style="padding: 8px; border: 1px solid #e0e0e0;">${address}</td>
-        </tr>
-      </table>
-      <p>To view more details, please log in to your dashboard.</p>
-      <p>Best regards,</p>
-      <p><strong>Opaleka Team</strong></p>
-    </div>
-  `,
-};
+    console.log("📅 Formatted date:", formattedDate);
+    console.log("⏰ Formatted time:", formattedTime);
 
-    await transporter.sendMail(mailOptions);
-    console.log("Email sent to:", provider.email);
+    const mailOptions = {
+      from: process.env.EMAIL_USER,
+      to: provider.email,
+      subject: `New Booking Notification - ${serviceName}`,
+      html: `
+        <div style="font-family: Arial, sans-serif; padding: 20px;">
+          <h2 style="color: #1a237e;">New Booking Received</h2>
+          <p>Dear <strong>${provider.name}</strong>,</p>
+          <p>You have received a new booking request from <strong>${client.name}</strong>. Please find the details below:</p>
+          <table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
+            <tr>
+              <td style="padding: 8px; border: 1px solid #e0e0e0; background-color: #f9f9f9; font-weight: bold;">Service</td>
+              <td style="padding: 8px; border: 1px solid #e0e0e0;">${serviceName}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px; border: 1px solid #e0e0e0; background-color: #f9f9f9; font-weight: bold;">Date</td>
+              <td style="padding: 8px; border: 1px solid #e0e0e0;">${formattedDate}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px; border: 1px solid #e0e0e0; background-color: #f9f9f9; font-weight: bold;">Time</td>
+              <td style="padding: 8px; border: 1px solid #e0e0e0;">${formattedTime}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px; border: 1px solid #e0e0e0; background-color: #f9f9f9; font-weight: bold;">Price</td>
+              <td style="padding: 8px; border: 1px solid #e0e0e0;">N$${price}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px; border: 1px solid #e0e0e0; background-color: #f9f9f9; font-weight: bold;">Client Email</td>
+              <td style="padding: 8px; border: 1px solid #e0e0e0;">${client.email}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px; border: 1px solid #e0e0e0; background-color: #f9f9f9; font-weight: bold;">Client Phone</td>
+              <td style="padding: 8px; border: 1px solid #e0e0e0;">${client.phone || "Not provided"}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px; border: 1px solid #e0e0e0; background-color: #f9f9f9; font-weight: bold;">Client Address</td>
+              <td style="padding: 8px; border: 1px solid #e0e0e0;">${address}</td>
+            </tr>
+          </table>
+          <p>To view more details, please log in to your dashboard.</p>
+          <p>Best regards,</p>
+          <p><strong>Opaleka Team</strong></p>
+        </div>
+      `,
+    };
+
+    try {
+      const emailResult = await transporter.sendMail(mailOptions);
+      console.log("✅ Email sent successfully!");
+      console.log("Email messageId:", emailResult.messageId);
+      console.log("Sent to:", provider.email);
+    } catch (emailError) {
+      console.error("⚠️ Email sending failed:", emailError.message);
+      console.error("Email error code:", emailError.code);
+      // Don't fail the booking if email fails
+    }
+
+    console.log("=== BOOKING COMPLETED SUCCESSFULLY ===");
 
     return res.status(201).json({
       success: true,
       message: "Booking created, provider notified, and email sent.",
-      booking,
+      booking: {
+        id: booking._id,
+        serviceName: booking.serviceName,
+        date: booking.date,
+        time: booking.time,
+        status: booking.status,
+      },
     });
   } catch (error) {
-    console.error("Error booking service:", error.message);
+    console.error("❌❌❌ CRITICAL ERROR in bookService ❌❌❌");
+    console.error("Error name:", error.name);
+    console.error("Error message:", error.message);
+    console.error("Error stack:", error.stack);
+    
     return res.status(500).json({
       success: false,
       message: "An error occurred while booking the service.",
+      error: error.message, // Send actual error for debugging
+      errorType: error.name,
     });
   }
 };
