@@ -408,7 +408,6 @@ exports.completeProfile = async (req, res) => {
     return res.status(500).json({ success: false, message: "Failed to complete profile." });
   }
 };
-
 exports.uploadDocuments = async (req, res) => {
   try {
     console.log("=== UPLOAD DOCUMENTS REQUEST ===");
@@ -553,11 +552,25 @@ exports.uploadDocuments = async (req, res) => {
 
     // Send email (with error handling)
     try {
-      await transporter.sendMail(mailOptions);
-      console.log("✅ Email sent successfully to gewersdeon61@gmail.com");
+      const emailResult = await transporter.sendMail(mailOptions);
+      console.log("✅ Email sent successfully!");
+      console.log("Email response:", emailResult.response);
+      console.log("Message ID:", emailResult.messageId);
+      console.log("Sent to:", mailOptions.to);
     } catch (emailError) {
-      console.error("⚠️ Email sending failed:", emailError.message);
-      console.error("Email error details:", emailError);
+      console.error("⚠️⚠️⚠️ EMAIL SENDING FAILED ⚠️⚠️⚠️");
+      console.error("Error code:", emailError.code);
+      console.error("Error message:", emailError.message);
+      console.error("Error command:", emailError.command);
+      console.error("Full error:", JSON.stringify(emailError, null, 2));
+      
+      // Check specific error types
+      if (emailError.code === 'EAUTH') {
+        console.error("🔐 Authentication failed - Check EMAIL_USER and EMAIL_PASS");
+      } else if (emailError.code === 'ETIMEDOUT' || emailError.code === 'ECONNECTION') {
+        console.error("🌐 Network/connection error - Check internet connection");
+      }
+      
       // Don't fail the whole request if email fails
     }
 
@@ -585,7 +598,7 @@ exports.uploadDocuments = async (req, res) => {
       errorDetails: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
   }
-};
+};;
 
 
 exports.verifyDocuments = async (req, res) => {
