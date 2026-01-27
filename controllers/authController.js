@@ -2590,3 +2590,51 @@ exports.updatePassword = async (req, res) => {
       res.status(500).json({ success: false, message: "Internal server error." });
   }
 };
+
+exports.getAnalytics = async (req, res) => {
+  try {
+    // 1. Total users (Clients + Providers)
+    const totalUsers = await User.countDocuments();
+
+    // 2. Pending verifications
+    const pendingVerifications = await ProviderDetails.countDocuments({
+      verificationStatus: "Pending"
+    });
+
+    // 3. Active/visible providers (Verified + Free trial or Paid)
+    const activeProviders = await ProviderDetails.countDocuments({
+      verificationStatus: "Verified",
+      $or: [
+        { paymentStatus: "Free" },
+        { paymentStatus: "Paid", paidAmount: { $gt: 0 } }
+      ]
+    });
+
+    // 4. Notifications sent today
+    const startOfDay = moment().startOf('day');
+    const endOfDay = moment().endOf('day');
+
+    const todayNotifications = await Notification.countDocuments({
+      createdAt: {
+        $gte: startOfDay,
+        $lte: endOfDay
+      }
+    });
+
+    res.status(200).json({
+      success: true,
+      data: {
+        totalUsers,
+        activeProviders,
+        pendingVerifications,
+        todayNotifications
+      }
+    });
+  } catch (error) {
+    console.error("Error fetching analytics:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch analytics"
+    });
+  }
+};
