@@ -44,7 +44,7 @@ app.use("/api/book", require("./routes/bookRoutes.js"));
 app.use("/api/tips", require("./routes/tipsRoutes.js"));
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 app.use('/api', require("./routes/speechRoutes.js"));
-
+app.use("/api/auth", require("./routes/authRoutes"));
 const PORT = process.env.PORT || 5002;
 app.listen(PORT, () => {
   console.log(`\n✅ Server running on port ${PORT}`);
