@@ -622,7 +622,7 @@ exports.verifyDocuments = async (req, res) => {
       return res.status(404).json({ success: false, message: "Provider not found or invalid role." });
     }
 
-    // Update provider details
+    // Update provider details (critical part - must succeed)
     const providerDetails = await ProviderDetails.findOneAndUpdate(
       { userId: user._id },
       { verificationStatus, adminNotes: adminNotes || null },
@@ -633,7 +633,7 @@ exports.verifyDocuments = async (req, res) => {
       return res.status(404).json({ success: false, message: "Provider details not found." });
     }
 
-    // Email configuration
+    // Email configuration (keep exactly as original)
     const transporter = nodemailer.createTransport({
       service: "Gmail",
       auth: {
@@ -642,12 +642,11 @@ exports.verifyDocuments = async (req, res) => {
       },
     });
 
-    // Email content
-    const emailSubject = verificationStatus === "Verified" 
-      ? "Your Documents Have Been Verified" 
+    // Email content (exactly as you had it)
+    const emailSubject = verificationStatus === "Verified"
+      ? "Your Documents Have Been Verified"
       : "Your Documents Were Rejected";
 
-    // HTML Email Body
     const htmlBody = verificationStatus === "Verified" ? `
       <div style="font-family: Arial, sans-serif; padding: 20px; background-color: #f9f9f9; border-radius: 8px; max-width: 600px; margin: 0 auto;">
         <h2 style="color: #1a237e; text-align: center; margin: 0 0 20px 0;">🎉 Congratulations! Your Account is Verified</h2>
@@ -656,31 +655,31 @@ exports.verifyDocuments = async (req, res) => {
         
         <h3 style="color: #1a237e; margin: 20px 0 15px 0;">🚀 Your Free Trial is Now Active</h3>
         <p style="margin: 0 0 15px 0;">
-          As a new provider on <strong>Opaleka</strong>, you are now on a 
-          <strong style="color: #27AE60;">free trial</strong>. This means you can 
-          <strong>start receiving client requests immediately</strong> at no cost. 
+          As a new provider on <strong>Opaleka</strong>, you are now on a
+          <strong style="color: #27AE60;">free trial</strong>. This means you can
+          <strong>start receiving client requests immediately</strong> at no cost.
           Your free trial will continue <strong>until you receive your first booking.</strong>
         </p>
-  
+ 
         <h3 style="color: #1a237e; margin: 20px 0 15px 0;">🔄 What Happens After Your First Booking?</h3>
         <p style="margin: 0 0 15px 0;">
-          Once you complete your first service booking, your account status will change from 
-          <strong>Free Plan</strong> to <strong style="color: #E67E22;">Unpaid</strong>. 
-          To continue receiving bookings, you must <strong>activate your account</strong> by paying 
+          Once you complete your first service booking, your account status will change from
+          <strong>Free Plan</strong> to <strong style="color: #E67E22;">Unpaid</strong>.
+          To continue receiving bookings, you must <strong>activate your account</strong> by paying
           <strong style="color: #E74C3C;">NAD 180</strong> every 30 days.
         </p>
-  
+ 
         <h3 style="color: #1a237e; margin: 20px 0 15px 0;">💡 Important Information</h3>
         <ul style="margin: 0 0 15px 0; padding-left: 20px;">
           <li style="margin-bottom: 8px;">✅ Your <strong>Free Plan</strong> allows you to receive <strong>your first service request</strong>.</li>
           <li style="margin-bottom: 8px;">✅ After your <strong>first booking</strong>, payment of <strong>NAD 180</strong> is required.</li>
           <li style="margin-bottom: 8px;">❌ If payment is not made, your <strong>profile will be hidden</strong> from clients.</li>
         </ul>
-  
+ 
         <p style="margin: 30px 0 15px 0; font-size: 14px; color: #555;">
           If you have any questions, please contact our support team.
         </p>
-  
+ 
         <div style="text-align: center; margin-top: 40px; color: #777;">
           <p style="margin: 0; font-size: 14px;">Best Regards,</p>
           <p style="margin: 0; font-size: 14px;"><strong>The Opaleka Team</strong></p>
@@ -691,22 +690,22 @@ exports.verifyDocuments = async (req, res) => {
         <h2 style="color: #E74C3C; text-align: center; margin: 0 0 20px 0;">⚠️ Important: Application Rejected</h2>
         <p style="margin: 0 0 15px 0;">Dear ${user.name},</p>
         <p style="margin: 0 0 15px 0;">We were unable to verify your documents. Reason for rejection:</p>
-  
+ 
         <div style="background-color: #ffe6e6; padding: 15px; border-left: 5px solid #E74C3C; margin: 10px 0;">
           <strong>Reason:</strong> ${adminNotes || "No additional details provided."}
         </div>
-  
+ 
         <h3 style="color: #1a237e; margin: 20px 0 15px 0;">📌 What You Can Do</h3>
         <ul style="margin: 0 0 15px 0; padding-left: 20px;">
           <li style="margin-bottom: 8px;">🔍 <strong>Review documents</strong> for requirements</li>
           <li style="margin-bottom: 8px;">📄 <strong>Re-upload valid documents</strong></li>
           <li style="margin-bottom: 8px;">💬 Contact support if you believe this is an error</li>
         </ul>
-  
+ 
         <p style="margin: 30px 0 15px 0; font-size: 14px; color: #555;">
           Complete the steps to get verified and start receiving requests.
         </p>
-  
+ 
         <div style="text-align: center; margin-top: 40px; color: #777;">
           <p style="margin: 0; font-size: 14px;">Best Regards,</p>
           <p style="margin: 0; font-size: 14px;"><strong>The Opaleka Team</strong></p>
@@ -714,38 +713,47 @@ exports.verifyDocuments = async (req, res) => {
       </div>
     `;
 
-    // Plain text version
-    const textBody = verificationStatus === "Verified" 
+    const textBody = verificationStatus === "Verified"
       ? `Congratulations ${user.name}! Your Opaleka account has been verified. You can now receive client requests. After your first booking, a payment of NAD 180 will be required every 30 days to maintain your account.`
       : `Important: Your application was rejected. Reason: ${adminNotes || "No details provided"}. Please review your documents and re-submit.`;
 
-    // Mail options
     const mailOptions = {
       from: process.env.EMAIL_USER,
       to: email,
       subject: emailSubject,
-      html: htmlBody,    // HTML version
-      text: textBody     // Plain text fallback
+      html: htmlBody,
+      text: textBody
     };
 
-    // Send email
-    await transporter.sendMail(mailOptions);
+    // TRY to send email - if it fails (timeout, etc.), log but continue
+    let emailSent = true;
+    try {
+      await transporter.sendMail(mailOptions);
+      console.log(`Verification email sent successfully to ${email}`);
+    } catch (emailError) {
+      emailSent = false;
+      console.error("Failed to send verification email:", emailError.message);
+      if (emailError.code === 'ETIMEDOUT') {
+        console.error("SMTP connection timeout - common on Render with Gmail");
+      }
+      // Do NOT throw - email failure is non-critical
+    }
 
+    // Always return success for the verification (DB update worked)
     res.status(200).json({
       success: true,
-      message: `Provider documents ${verificationStatus.toLowerCase()} successfully.`,
+      message: `Provider documents ${verificationStatus.toLowerCase()} successfully.${emailSent ? '' : ' (Email notification failed to send - check server logs)'}`,
     });
 
   } catch (error) {
-    console.error("Error verifying documents:", error);
-    res.status(500).json({ 
-      success: false, 
-      message: "Failed to verify documents.",
+    console.error("Critical error verifying documents:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to verify documents (database error).",
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };
-
 exports.getPendingProviders = async (req, res) => {
   try {
     // Find all providers with pending verification status
