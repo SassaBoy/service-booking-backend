@@ -19,19 +19,24 @@ const storage = multer.diskStorage({
 
 const upload = multer({
   storage,
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB file size limit
+  limits: { fileSize: 10 * 1024 * 1024 }, // Increased to 10MB as iPhone photos are high-res
   fileFilter: (req, file, cb) => {
-    const fileTypes = /jpeg|jpg|png/;
+    // Added heic and heif to the allowed list
+    const fileTypes = /jpeg|jpg|png|heic|heif/;
+    
+    // Check extension
     const extname = fileTypes.test(path.extname(file.originalname).toLowerCase());
+    // Check MIME type (iPhones send image/heic or image/heif)
     const mimetype = fileTypes.test(file.mimetype);
 
-    if (mimetype && extname) {
+    if (mimetype || extname) {
       return cb(null, true);
     } else {
-      cb(new Error("Only images (jpeg, jpg, png) are allowed."));
+      // Improved error message for the user
+      cb(new Error("Format not supported. Please upload JPEG, PNG, or HEIC images."));
     }
   },
-});
+});;
 
 // Configure Multer for PDFs
 const documentStorage = multer.diskStorage({
