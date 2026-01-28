@@ -1263,99 +1263,207 @@ if (updates.oldPassword && updates.newPassword) {
 exports.sendNotification = async (req, res) => {
   try {
     const { title, message, audience, userId } = req.body;
-
+    
+    console.log("=== SEND NOTIFICATION REQUEST ===");
+    console.log("Title:", title);
+    console.log("Audience:", audience);
+    console.log("User ID:", userId);
+    
     if (!title || !message) {
+      console.error("❌ Missing title or message");
       return res.status(400).json({
         success: false,
         message: "Title and message are required.",
       });
     }
-
+    
     let users = [];
-
+    
     // Determine recipients based on audience
     switch (audience) {
       case "Specific":
         if (!userId) {
+          console.error("❌ User ID missing for specific notification");
           return res.status(400).json({
             success: false,
             message: "User ID or email is required for specific notifications.",
           });
         }
-
         // Check if the userId is an email or ObjectId
         const query = userId.includes("@")
           ? { email: userId }
           : { _id: userId };
-
         const user = await User.findOne(query);
         if (!user) {
+          console.error("❌ User not found:", userId);
           return res.status(404).json({
             success: false,
             message: "User not found.",
           });
         }
         users.push(user);
+        console.log("✅ Target user found:", user.email);
         break;
-
+        
       case "All":
         users = await User.find();
+        console.log(`✅ Found ${users.length} users (All)`);
         break;
-
+        
       case "Client":
         users = await User.find({ role: "Client" });
+        console.log(`✅ Found ${users.length} clients`);
         break;
-
+        
       case "Provider":
         users = await User.find({ role: "Provider" });
+        console.log(`✅ Found ${users.length} providers`);
         break;
-
+        
       default:
+        console.error("❌ Invalid audience type:", audience);
         return res.status(400).json({
           success: false,
           message: "Invalid audience type.",
         });
     }
-
-    // Send notifications
+    
+    if (users.length === 0) {
+      console.warn("⚠️ No users found for the selected audience");
+      return res.status(200).json({
+        success: true,
+        message: "No users found for the selected audience.",
+        notificationsSent: 0,
+        emailsSent: 0,
+      });
+    }
+    
+    console.log(`📨 Processing notifications for ${users.length} user(s)...`);
+    
+    // Email configuration with timeout
     const transporter = nodemailer.createTransport({
       service: "Gmail",
       auth: {
         user: process.env.EMAIL_USER,
         pass: process.env.EMAIL_PASS,
       },
+      connectionTimeout: 10000, // 10 seconds
+      greetingTimeout: 10000,
+      socketTimeout: 15000, // 15 seconds
     });
-
+    
+    let notificationsSaved = 0;
+    let emailsSent = 0;
+    let emailsFailed = 0;
+    const failedEmails = [];
+    
+    // Process each user
     for (const user of users) {
-      // Save notification to database
-      const notification = new Notification({
-        userId: user._id,
-        title,
-        message,
-      });
-      await notification.save();
-
-      // Send email notification
-      const mailOptions = {
-        from: process.env.EMAIL_USER,
-        to: user.email,
-        subject: title,
-        text: message,
-      };
-      await transporter.sendMail(mailOptions);
+      try {
+        // Save notification to database (always succeeds or throws)
+        const notification = new Notification({
+          userId: user._id,
+          title,
+          message,
+        });
+        await notification.save();
+        notificationsSaved++;
+        console.log(`✅ Notification saved for ${user.email}`);
+        
+        // Attempt to send email with timeout
+        try {
+          const mailOptions = {
+            from: process.env.EMAIL_USER,
+            to: user.email,
+            subject: title,
+            html: `
+              <div style="font-family: Arial, sans-serif; padding: 20px;">
+                <h2 style="color: #1a237e;">${title}</h2>
+                <p>${message}</p>
+                <hr style="margin: 20px 0; border: none; border-top: 1px solid #e0e0e0;">
+                <p style="font-size: 12px; color: #666;">
+                  This is an automated notification from Opaleka.
+                </p>
+              </div>
+            `,
+            text: message, // Fallback plain text
+          };
+          
+          // Create timeout promise (5 seconds per email to avoid long waits)
+          const timeoutPromise = new Promise((_, reject) => {
+            setTimeout(() => reject(new Error('Email timeout')), 5000);
+          });
+          
+          // Race between email sending and timeout
+          await Promise.race([
+            transporter.sendMail(mailOptions),
+            timeoutPromise
+          ]);
+          
+          emailsSent++;
+          console.log(`✅ Email sent to ${user.email}`);
+          
+        } catch (emailError) {
+          emailsFailed++;
+          failedEmails.push({
+            email: user.email,
+            error: emailError.message,
+          });
+          console.error(`⚠️ Email failed for ${user.email}:`, emailError.message);
+          
+          // Log specific error types
+          if (emailError.message.includes('timeout')) {
+            console.error(`🕐 Timeout sending to ${user.email}`);
+          } else if (emailError.code === 'EAUTH') {
+            console.error(`🔐 Authentication failed`);
+          } else if (emailError.code === 'EENVELOPE') {
+            console.error(`📧 Invalid email address: ${user.email}`);
+          }
+        }
+        
+      } catch (notificationError) {
+        console.error(`❌ Failed to save notification for ${user.email}:`, notificationError.message);
+        // Continue with next user even if one fails
+      }
     }
-
+    
+    console.log("=== NOTIFICATION SUMMARY ===");
+    console.log(`📝 Notifications saved: ${notificationsSaved}/${users.length}`);
+    console.log(`📧 Emails sent: ${emailsSent}/${users.length}`);
+    console.log(`⚠️ Emails failed: ${emailsFailed}/${users.length}`);
+    
+    // Construct detailed response message
+    let responseMessage = `Notification sent to ${
+      audience === "Specific" ? "the user" : audience.toLowerCase()
+    } successfully.`;
+    
+    if (emailsFailed > 0) {
+      responseMessage += ` However, ${emailsFailed} email(s) could not be delivered.`;
+    }
+    
     res.status(200).json({
       success: true,
-      message: `Notification sent to ${
-        audience === "Specific" ? "the user" : audience.toLowerCase()
-      } successfully.`,
+      message: responseMessage,
+      summary: {
+        totalUsers: users.length,
+        notificationsSaved: notificationsSaved,
+        emailsSent: emailsSent,
+        emailsFailed: emailsFailed,
+      },
+      failedEmails: emailsFailed > 0 ? failedEmails : undefined,
     });
+    
   } catch (error) {
-    console.error("Error sending notification:", error);
+    console.error("❌❌❌ CRITICAL ERROR in sendNotification ❌❌❌");
+    console.error("Error name:", error.name);
+    console.error("Error message:", error.message);
+    console.error("Error stack:", error.stack);
+    
     res.status(500).json({
       success: false,
       message: "Failed to send notification. Please try again later.",
+      error: error.message,
+      errorType: error.name,
     });
   }
 };
