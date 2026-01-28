@@ -326,12 +326,13 @@ exports.completeProfile = async (req, res) => {
       const parsedOperatingHours =
         typeof operatingHours === "string" ? JSON.parse(operatingHours) : operatingHours;
 
-      normalizedOperatingHours = Object.entries(parsedOperatingHours || {}).reduce(
+  normalizedOperatingHours = Object.entries(parsedOperatingHours || {}).reduce(
         (acc, [day, hours]) => {
+          if (!hours) return acc; // Skip if day data is null
           acc[day] = {
-            start: hours.isClosed ? null : hours.start || null,
-            end: hours.isClosed ? null : hours.end || null,
-            isClosed: hours.isClosed || false,
+            start: hours.isClosed ? null : (hours.start || null),
+            end: hours.isClosed ? null : (hours.end || null),
+            isClosed: !!hours.isClosed, // Force boolean
           };
           return acc;
         },
@@ -349,7 +350,8 @@ exports.completeProfile = async (req, res) => {
       return res.status(400).json({ success: false, message: "Invalid socialLinks format." });
     }
 
-    const images = req.files?.map((file) => file.path);
+    // ✅ Normalize paths for cloud storage/Render compatibility
+    const images = req.files ? req.files.map((file) => file.path) : [];
 
     // Check if the profile already exists
     let profile = await CompleteProfile.findOne({ userId: user._id });
