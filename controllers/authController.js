@@ -512,83 +512,112 @@ exports.uploadDocuments = async (req, res) => {
 
     console.log("📋 Profile data prepared for email");
 
-    // ✅ Email setup with explicit configuration for better compatibility
-    const transporter = nodemailer.createTransport({
-      host: "smtp.gmail.com",
-      port: 587,
-      secure: false, // Use STARTTLS
-      auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS,
-      },
-      tls: {
-        rejectUnauthorized: false // Accept self-signed certificates
-      },
-      connectionTimeout: 10000, // 10 seconds
-      greetingTimeout: 10000,
-      socketTimeout: 10000,
-    });
+    // Send email notification asynchronously with timeout handling
+    let emailSent = false;
+    let emailError = null;
 
-    console.log("📧 Preparing to send email...");
-
-    // ✅ Email content
-    const mailOptions = {
-      from: `"Opaleka Applications" <${process.env.EMAIL_USER}>`,
-      to: "gewersdeon61@gmail.com",
-      subject: "📄 New Provider Application Submitted",
-      html: `
-        <div style="font-family: Arial, sans-serif; padding: 20px; border-radius: 8px; background-color: #f9f9f9;">
-          <h2 style="color: #1a237e;">New Provider Application Submitted</h2>
-          <p><strong>Name:</strong> ${profileData.name}</p>
-          <p><strong>Email:</strong> ${profileData.email}</p>
-          <p><strong>Phone:</strong> ${profileData.phone}</p>
-          <p><strong>Business Address:</strong> ${profileData.businessAddress}</p>
-          <p><strong>Town:</strong> ${profileData.town}</p>
-          <p><strong>Years of Experience:</strong> ${profileData.yearsOfExperience}</p>
-          <p><strong>Services Offered:</strong> ${profileData.services}</p>
-          <p><strong>Description:</strong> ${profileData.description}</p>
-          <p style="margin-top: 20px; font-size: 14px; color: #555;">The attached document contains the applicant's verification file.</p>
-        </div>
-      `,
-      attachments: [
-        {
-          filename: req.file.originalname,
-          path: req.file.path,
-        },
-      ],
-    };
-
-    // Send email (with error handling)
     try {
-      const emailResult = await transporter.sendMail(mailOptions);
+      // ✅ Email setup with explicit configuration for better compatibility
+      const transporter = nodemailer.createTransport({
+        host: "smtp.gmail.com",
+        port: 587,
+        secure: false, // Use STARTTLS
+        auth: {
+          user: process.env.EMAIL_USER,
+          pass: process.env.EMAIL_PASS,
+        },
+        tls: {
+          rejectUnauthorized: false // Accept self-signed certificates
+        },
+        connectionTimeout: 10000, // 10 seconds
+        greetingTimeout: 10000,
+        socketTimeout: 15000, // 15 seconds
+      });
+
+      console.log("📧 Preparing to send email...");
+
+      // ✅ Email content
+      const mailOptions = {
+        from: `"Opaleka Applications" <${process.env.EMAIL_USER}>`,
+        to: "gewersdeon61@gmail.com",
+        subject: "📄 New Provider Application Submitted",
+        html: `
+          <div style="font-family: Arial, sans-serif; padding: 20px; border-radius: 8px; background-color: #f9f9f9;">
+            <h2 style="color: #1a237e;">New Provider Application Submitted</h2>
+            <p><strong>Name:</strong> ${profileData.name}</p>
+            <p><strong>Email:</strong> ${profileData.email}</p>
+            <p><strong>Phone:</strong> ${profileData.phone}</p>
+            <p><strong>Business Address:</strong> ${profileData.businessAddress}</p>
+            <p><strong>Town:</strong> ${profileData.town}</p>
+            <p><strong>Years of Experience:</strong> ${profileData.yearsOfExperience}</p>
+            <p><strong>Services Offered:</strong> ${profileData.services}</p>
+            <p><strong>Description:</strong> ${profileData.description}</p>
+            <p style="margin-top: 20px; font-size: 14px; color: #555;">The attached document contains the applicant's verification file.</p>
+          </div>
+        `,
+        attachments: [
+          {
+            filename: req.file.originalname,
+            path: req.file.path,
+          },
+        ],
+      };
+
+      // Create a timeout promise
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('Email sending timeout after 20 seconds')), 20000);
+      });
+
+      // Race between email sending and timeout
+      const emailResult = await Promise.race([
+        transporter.sendMail(mailOptions),
+        timeoutPromise
+      ]);
+
       console.log("✅ Email sent successfully!");
       console.log("Email response:", emailResult.response);
       console.log("Message ID:", emailResult.messageId);
       console.log("Sent to:", mailOptions.to);
-    } catch (emailError) {
+      emailSent = true;
+
+    } catch (error) {
+      emailError = error;
       console.error("⚠️⚠️⚠️ EMAIL SENDING FAILED ⚠️⚠️⚠️");
-      console.error("Error code:", emailError.code);
-      console.error("Error message:", emailError.message);
-      console.error("Error command:", emailError.command);
-      console.error("Full error:", JSON.stringify(emailError, null, 2));
+      console.error("Error code:", error.code);
+      console.error("Error message:", error.message);
+      console.error("Error command:", error.command);
       
       // Check specific error types
-      if (emailError.code === 'EAUTH') {
+      if (error.message.includes('timeout')) {
+        console.error("🕐 Email timeout - SMTP server not responding within 20 seconds");
+      } else if (error.code === 'EAUTH') {
         console.error("🔐 Authentication failed - Check EMAIL_USER and EMAIL_PASS");
-      } else if (emailError.code === 'ETIMEDOUT' || emailError.code === 'ECONNECTION') {
+      } else if (error.code === 'ETIMEDOUT' || error.code === 'ECONNECTION') {
         console.error("🌐 Network/connection error - Check internet connection");
+      } else if (error.code === 'ESOCKET') {
+        console.error("🔌 Socket error - Connection interrupted");
       }
       
-      // Don't fail the whole request if email fails
+      // Don't fail the whole request if email fails - document was already saved
     }
 
-    // ✅ Return success response
+    // ✅ Return success response with email status
     console.log("✅ Upload completed successfully");
     console.log("=== END UPLOAD DOCUMENTS ===");
     
+    // Construct response message based on email status
+    let responseMessage = "Document uploaded successfully.";
+    if (emailSent) {
+      responseMessage += " Admin notification sent.";
+    } else {
+      responseMessage += " However, admin notification could not be sent.";
+    }
+    
     return res.status(200).json({
       success: true,
-      message: "Document uploaded successfully.",
+      message: responseMessage,
+      emailSent: emailSent,
+      emailError: emailError ? emailError.message : null,
       document,
     });
 
@@ -602,7 +631,7 @@ exports.uploadDocuments = async (req, res) => {
     return res.status(500).json({ 
       success: false, 
       message: "Failed to upload document.",
-      error: error.message, // ✅ Always send error message for debugging
+      error: error.message,
       errorDetails: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
   }
