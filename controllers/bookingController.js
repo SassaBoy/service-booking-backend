@@ -9,10 +9,9 @@ const moment = require("moment");
 exports.bookService = async (req, res) => {
   try {
     const { userId, providerId, serviceName, date, time, price, address } = req.body;
-
     console.log("=== BOOKING REQUEST RECEIVED ===");
     console.log("Request body:", JSON.stringify(req.body, null, 2));
-
+    
     // Identify missing fields
     const missingFields = [];
     if (!userId) missingFields.push("userId");
@@ -21,8 +20,8 @@ exports.bookService = async (req, res) => {
     if (!date) missingFields.push("date");
     if (!time) missingFields.push("time");
     if (!price) missingFields.push("price");
-    if (!address) missingFields.push("address"); 
-
+    if (!address) missingFields.push("address");
+    
     if (missingFields.length > 0) {
       console.error("❌ Validation error: Missing fields -", missingFields.join(", "));
       return res.status(400).json({
@@ -30,9 +29,8 @@ exports.bookService = async (req, res) => {
         message: `Validation error: Missing fields - ${missingFields.join(", ")}.`,
       });
     }
-
     console.log("✅ All required fields present");
-
+    
     // Check if the provider exists
     const provider = await User.findById(providerId);
     if (!provider) {
@@ -42,9 +40,8 @@ exports.bookService = async (req, res) => {
         message: "Service provider not found.",
       });
     }
-
     console.log(`✅ Provider found: ${provider.name} (${provider.email})`);
-
+    
     // Check if the client exists
     const client = await User.findById(userId);
     if (!client) {
@@ -54,29 +51,27 @@ exports.bookService = async (req, res) => {
         message: "Client not found.",
       });
     }
-
     console.log(`✅ Client found: ${client.name} (${client.email}, ${client.phone || 'No phone'})`);
-
+    
     // Check if this is the provider's first booking
     const existingBookings = await Booking.find({ providerId });
     console.log(`📊 Existing bookings for provider: ${existingBookings.length}`);
-    
+   
     if (existingBookings.length === 0) {
       console.log(`🎯 First booking for provider ${providerId}. Updating payment status to "Unpaid".`);
-
       const updateResult = await ProviderDetails.findOneAndUpdate(
         { userId: providerId },
         { paymentStatus: "Unpaid" },
         { new: true }
       );
-      
+     
       if (updateResult) {
         console.log(`✅ Provider payment status updated to: ${updateResult.paymentStatus}`);
       } else {
         console.warn(`⚠️ Could not find ProviderDetails for userId: ${providerId}`);
       }
     }
-
+    
     // Create the booking
     console.log("📝 Creating booking...");
     const booking = new Booking({
@@ -86,13 +81,12 @@ exports.bookService = async (req, res) => {
       date,
       time,
       price,
-      address, 
+      address,
       status: "pending",
     });
-
     await booking.save();
     console.log("✅ Booking saved:", booking._id);
-
+    
     // Create a notification
     console.log("🔔 Creating notification...");
     const notification = new Notification({
@@ -109,32 +103,38 @@ exports.bookService = async (req, res) => {
         address,
       }),
     });
-
     await notification.save();
     console.log("✅ Notification saved:", notification._id);
-
-    // Send email notification to the provider
+    
+    // Send email notification to the provider (with timeout)
     console.log("📧 Preparing email...");
-    const transporter = nodemailer.createTransport({
-      service: "Gmail",
-      auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS,
-      },
-    });
-
-    // Format date and time
-    const formattedDate = moment(date).format("dddd, MMMM D, YYYY");
-    const formattedTime = moment(time, "HH:mm").format("hh:mm A");
-
-    console.log("📅 Formatted date:", formattedDate);
-    console.log("⏰ Formatted time:", formattedTime);
-
-    const mailOptions = {
-      from: process.env.EMAIL_USER,
-      to: provider.email,
-      subject: `New Booking Notification - ${serviceName}`,
-      html: `
+    let emailSent = false;
+    let emailError = null;
+    
+    try {
+      const transporter = nodemailer.createTransport({
+        service: "Gmail",
+        auth: {
+          user: process.env.EMAIL_USER,
+          pass: process.env.EMAIL_PASS,
+        },
+        // Add connection timeout
+        connectionTimeout: 10000, // 10 seconds
+        greetingTimeout: 10000,
+        socketTimeout: 15000, // 15 seconds
+      });
+      
+      // Format date and time
+      const formattedDate = moment(date).format("dddd, MMMM D, YYYY");
+      const formattedTime = moment(time, "HH:mm").format("hh:mm A");
+      console.log("📅 Formatted date:", formattedDate);
+      console.log("⏰ Formatted time:", formattedTime);
+      
+      const mailOptions = {
+        from: process.env.EMAIL_USER,
+        to: provider.email,
+        subject: `New Booking Notification - ${serviceName}`,
+        html: `
         <div style="font-family: Arial, sans-serif; padding: 20px;">
           <h2 style="color: #1a237e;">New Booking Received</h2>
           <p>Dear <strong>${provider.name}</strong>,</p>
@@ -173,25 +173,58 @@ exports.bookService = async (req, res) => {
           <p>Best regards,</p>
           <p><strong>Opaleka Team</strong></p>
         </div>
-      `,
-    };
-
-    try {
-      const emailResult = await transporter.sendMail(mailOptions);
+        `,
+      };
+      
+      // Create a timeout promise
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('Email sending timeout after 15 seconds')), 15000);
+      });
+      
+      // Race between email sending and timeout
+      const emailResult = await Promise.race([
+        transporter.sendMail(mailOptions),
+        timeoutPromise
+      ]);
+      
       console.log("✅ Email sent successfully!");
       console.log("Email messageId:", emailResult.messageId);
       console.log("Sent to:", provider.email);
-    } catch (emailError) {
-      console.error("⚠️ Email sending failed:", emailError.message);
-      console.error("Email error code:", emailError.code);
-      // Don't fail the booking if email fails
+      emailSent = true;
+      
+    } catch (error) {
+      emailError = error;
+      console.error("⚠️ Email sending failed:", error.message);
+      console.error("Email error code:", error.code);
+      console.error("Email error type:", error.name);
+      
+      // Log specific error types for debugging
+      if (error.message.includes('timeout')) {
+        console.error("🕐 Email timeout - SMTP server not responding");
+      } else if (error.code === 'EAUTH') {
+        console.error("🔐 Email authentication failed");
+      } else if (error.code === 'ECONNECTION') {
+        console.error("🔌 Email connection failed");
+      }
+      
+      // Don't fail the booking if email fails - booking was already saved
     }
-
+    
     console.log("=== BOOKING COMPLETED SUCCESSFULLY ===");
-
+    
+    // Construct response message based on email status
+    let responseMessage = "Booking created and provider notified.";
+    if (emailSent) {
+      responseMessage += " Email sent successfully.";
+    } else {
+      responseMessage += " However, email notification could not be sent.";
+    }
+    
     return res.status(201).json({
       success: true,
-      message: "Booking created, provider notified, and email sent.",
+      message: responseMessage,
+      emailSent: emailSent,
+      emailError: emailError ? emailError.message : null,
       booking: {
         id: booking._id,
         serviceName: booking.serviceName,
@@ -200,16 +233,17 @@ exports.bookService = async (req, res) => {
         status: booking.status,
       },
     });
+    
   } catch (error) {
     console.error("❌❌❌ CRITICAL ERROR in bookService ❌❌❌");
     console.error("Error name:", error.name);
     console.error("Error message:", error.message);
     console.error("Error stack:", error.stack);
-    
+   
     return res.status(500).json({
       success: false,
       message: "An error occurred while booking the service.",
-      error: error.message, // Send actual error for debugging
+      error: error.message,
       errorType: error.name,
     });
   }
