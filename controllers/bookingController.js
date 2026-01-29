@@ -171,7 +171,7 @@ exports.bookService = async (req, res) => {
           </table>
           <p>To view more details, please log in to your dashboard.</p>
           <p>Best regards,</p>
-          <p><strong>Opaleka Team</strong></p>
+          <p><strong>Veldt Team</strong></p>
         </div>
         `,
       };
@@ -299,12 +299,11 @@ exports.getBookingsForProvider = async (req, res) => {
 };
 
 
-
 exports.acceptBooking = async (req, res) => {
   try {
     const { bookingId } = req.params;
 
-    // Find the booking and update its status
+    // Update booking status FIRST
     const booking = await Booking.findByIdAndUpdate(
       bookingId,
       { status: "confirmed" },
@@ -318,73 +317,84 @@ exports.acceptBooking = async (req, res) => {
       });
     }
 
-    // Format the date and time
-    const formattedDate = moment(booking.date).format("dddd, MMMM D, YYYY"); // Example: "Saturday, January 26, 2025"
-    const formattedTime = moment(booking.time, "HH:mm").format("hh:mm A"); // Example: "02:30 PM"
+    const formattedDate = moment(booking.date).format("dddd, MMMM D, YYYY");
+    const formattedTime = moment(booking.time, "HH:mm").format("hh:mm A");
 
-    // Send confirmation email to the client
-    const transporter = nodemailer.createTransport({
-      service: "Gmail",
-      auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS,
-      },
-    });
+    // Try to send email with timeout protection
+    let emailSent = false;
+    try {
+      const transporter = nodemailer.createTransport({
+        service: "Gmail",
+        auth: {
+          user: process.env.EMAIL_USER,
+          pass: process.env.EMAIL_PASS,
+        },
+        connectionTimeout: 10000,
+        greetingTimeout: 10000,
+        socketTimeout: 15000,
+      });
 
-    const mailOptions = {
-      from: `"Opaleka Bookings" <${process.env.EMAIL_USER}>`,
-      to: booking.userId.email,
-      subject: `✅ Your Booking is Confirmed - ${booking.serviceName}`,
-      html: `
-        <div style="font-family: Arial, sans-serif; padding: 20px; color: #333;">
-          <h2 style="color: #1a237e;">Your Booking is Confirmed ✅</h2>
-          <p>Dear <strong>${booking.userId.name}</strong>,</p>
-          <p>We are pleased to inform you that your booking for <strong>${booking.serviceName}</strong> has been successfully confirmed.</p>
-          
-          <table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
-            <tr>
-              <td style="padding: 8px; border: 1px solid #e0e0e0; background-color: #f9f9f9; font-weight: bold;">📅 Date</td>
-              <td style="padding: 8px; border: 1px solid #e0e0e0;">${formattedDate}</td>
-            </tr>
-            <tr>
-              <td style="padding: 8px; border: 1px solid #e0e0e0; background-color: #f9f9f9; font-weight: bold;">⏰ Time</td>
-              <td style="padding: 8px; border: 1px solid #e0e0e0;">${formattedTime}</td>
-            </tr>
-          </table>
+      const mailOptions = {
+        from: `"Veldt Bookings" <${process.env.EMAIL_USER}>`,
+        to: booking.userId.email,
+        subject: `✅ Your Booking is Confirmed - ${booking.serviceName}`,
+        html: `
+          <div style="font-family: Arial, sans-serif; padding: 20px; color: #333;">
+            <h2 style="color: #1a237e;">Your Booking is Confirmed ✅</h2>
+            <p>Dear <strong>${booking.userId.name}</strong>,</p>
+            <p>We are pleased to inform you that your booking for <strong>${booking.serviceName}</strong> has been successfully confirmed.</p>
+            
+            <table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
+              <tr>
+                <td style="padding: 8px; border: 1px solid #e0e0e0; background-color: #f9f9f9; font-weight: bold;">📅 Date</td>
+                <td style="padding: 8px; border: 1px solid #e0e0e0;">${formattedDate}</td>
+              </tr>
+              <tr>
+                <td style="padding: 8px; border: 1px solid #e0e0e0; background-color: #f9f9f9; font-weight: bold;">⏰ Time</td>
+                <td style="padding: 8px; border: 1px solid #e0e0e0;">${formattedTime}</td>
+              </tr>
+            </table>
 
-          <p>For any questions or further assistance, feel free to contact your service provider.</p>
-          <p>Thank you for choosing Opaleka! We hope you have a great experience. 😊</p>
+            <p>For any questions or further assistance, feel free to contact your service provider.</p>
+            <p>Thank you for choosing Veldt! We hope you have a great experience. 😊</p>
 
-          <p>Best Regards,</p>
-          <p><strong>Opaleka Team</strong></p>
-        </div>
-      `,
-    };
+            <p>Best Regards,</p>
+            <p><strong>Veldt Team</strong></p>
+          </div>
+        `,
+      };
 
-    await transporter.sendMail(mailOptions);
+      // Send email with timeout race
+      await Promise.race([
+        transporter.sendMail(mailOptions),
+        new Promise((_, reject) => setTimeout(() => reject(new Error("Email timeout")), 15000))
+      ]);
 
+      emailSent = true;
+    } catch (emailErr) {
+      console.error("Email failed (but booking accepted):", emailErr);
+    }
+
+    // Always return success
     return res.status(200).json({
       success: true,
-      message: "Booking successfully accepted. A confirmation email has been sent to the client.",
+      message: "Booking accepted successfully" + (emailSent ? ". Email sent." : ". Email could not be sent."),
       booking,
     });
+
   } catch (error) {
-    console.error("Error accepting booking:", error);
+    console.error("Critical error in acceptBooking:", error);
     return res.status(500).json({
       success: false,
-      message: "An error occurred while accepting the booking.",
+      message: "Server error while accepting booking.",
     });
   }
 };
-
-
-
 
 exports.rejectBooking = async (req, res) => {
   try {
     const { bookingId } = req.params;
 
-    // Find the booking and update its status
     const booking = await Booking.findByIdAndUpdate(
       bookingId,
       { status: "rejected" },
@@ -398,62 +408,73 @@ exports.rejectBooking = async (req, res) => {
       });
     }
 
-    // Format the date and time
-    const formattedDate = moment(booking.date).format("dddd, MMMM D, YYYY"); // Example: "Saturday, January 26, 2025"
-    const formattedTime = moment(booking.time, "HH:mm").format("hh:mm A"); // Example: "02:30 PM"
+    const formattedDate = moment(booking.date).format("dddd, MMMM D, YYYY");
+    const formattedTime = moment(booking.time, "HH:mm").format("hh:mm A");
 
-    // Send rejection email to the client
-    const transporter = nodemailer.createTransport({
-      service: "Gmail",
-      auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS,
-      },
-    });
+    let emailSent = false;
+    try {
+      const transporter = nodemailer.createTransport({
+        service: "Gmail",
+        auth: {
+          user: process.env.EMAIL_USER,
+          pass: process.env.EMAIL_PASS,
+        },
+        connectionTimeout: 10000,
+        greetingTimeout: 10000,
+        socketTimeout: 15000,
+      });
 
-    const mailOptions = {
-      from: `"Opaleka Support" <${process.env.EMAIL_USER}>`,
-      to: booking.userId.email,
-      subject: `⚠️ Booking Rejected - ${booking.serviceName}`,
-      html: `
-        <div style="font-family: Arial, sans-serif; padding: 20px; color: #333;">
-          <h2 style="color: #1a237e;">⚠️ Your Booking Request Has Been Rejected</h2>
-          <p>Dear <strong>${booking.userId.name}</strong>,</p>
-          <p>We regret to inform you that your booking request for <strong>${booking.serviceName}</strong> has been rejected.</p>
+      const mailOptions = {
+        from: `"Veldt Support" <${process.env.EMAIL_USER}>`,
+        to: booking.userId.email,
+        subject: `⚠️ Booking Rejected - ${booking.serviceName}`,
+        html: `
+          <div style="font-family: Arial, sans-serif; padding: 20px; color: #333;">
+            <h2 style="color: #1a237e;">⚠️ Your Booking Request Has Been Rejected</h2>
+            <p>Dear <strong>${booking.userId.name}</strong>,</p>
+            <p>We regret to inform you that your booking request for <strong>${booking.serviceName}</strong> has been rejected.</p>
 
-          <table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
-            <tr>
-              <td style="padding: 8px; border: 1px solid #e0e0e0; background-color: #f9f9f9; font-weight: bold;">📅 Date</td>
-              <td style="padding: 8px; border: 1px solid #e0e0e0;">${formattedDate}</td>
-            </tr>
-            <tr>
-              <td style="padding: 8px; border: 1px solid #e0e0e0; background-color: #f9f9f9; font-weight: bold;">⏰ Time</td>
-              <td style="padding: 8px; border: 1px solid #e0e0e0;">${formattedTime}</td>
-            </tr>
-          </table>
+            <table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
+              <tr>
+                <td style="padding: 8px; border: 1px solid #e0e0e0; background-color: #f9f9f9; font-weight: bold;">📅 Date</td>
+                <td style="padding: 8px; border: 1px solid #e0e0e0;">${formattedDate}</td>
+              </tr>
+              <tr>
+                <td style="padding: 8px; border: 1px solid #e0e0e0; background-color: #f9f9f9; font-weight: bold;">⏰ Time</td>
+                <td style="padding: 8px; border: 1px solid #e0e0e0;">${formattedTime}</td>
+              </tr>
+            </table>
 
-          <p>We apologize for any inconvenience. If you have any questions, feel free to reach out to our support team.</p>
-          <p>You may try booking another provider or rescheduling your appointment.</p>
+            <p>We apologize for any inconvenience. If you have any questions, feel free to reach out to our support team.</p>
+            <p>You may try booking another provider or rescheduling your appointment.</p>
 
-          <p>Best Regards,</p>
-          <p><strong>Opaleka Team</strong></p>
-        </div>
-      `,
-    };
+            <p>Best Regards,</p>
+            <p><strong>Veldt Team</strong></p>
+          </div>
+        `,
+      };
 
-    await transporter.sendMail(mailOptions);
+      await Promise.race([
+        transporter.sendMail(mailOptions),
+        new Promise((_, reject) => setTimeout(() => reject(new Error("Email timeout")), 15000))
+      ]);
+
+      emailSent = true;
+    } catch (emailErr) {
+      console.error("Email failed (but booking rejected):", emailErr);
+    }
 
     return res.status(200).json({
       success: true,
-      message: "Booking successfully rejected. An email has been sent to the client.",
+      message: "Booking rejected successfully" + (emailSent ? ". Email sent." : ". Email could not be sent."),
       booking,
     });
-    
+
   } catch (error) {
     console.error("Error rejecting booking:", error);
     return res.status(500).json({
       success: false,
-      message: "An error occurred while rejecting the booking.",
+      message: "Server error while rejecting booking.",
     });
   }
 };
@@ -508,12 +529,10 @@ exports.deleteRejectedRecord = async (req, res) => {
 };
 
 
-
 exports.completeJob = async (req, res) => {
-  const { bookingId } = req.params;
-
   try {
-    // Mark the booking as completed and set pendingRating to true
+    const { bookingId } = req.params;
+
     const booking = await Booking.findByIdAndUpdate(
       bookingId,
       { status: "completed", pendingRating: true },
@@ -525,80 +544,81 @@ exports.completeJob = async (req, res) => {
     }
 
     const client = booking.userId;
-    const provider = booking.providerId;
 
-    if (!client) {
-      return res.status(404).json({ success: false, message: "Client not found." });
-    }
-
-    // Format date and time
-    const formattedDate = moment(booking.date).format("dddd, MMMM D, YYYY"); // Example: "Saturday, January 26, 2025"
-    const formattedTime = moment(booking.time, "HH:mm A"); // Example: "02:30 PM"
-
-    // Create an in-app notification for the client
     const notification = new Notification({
       userId: client._id,
       title: "Job Completed",
       message: `Your booking for ${booking.serviceName} has been completed. You can now rate your provider.`,
     });
-
     await notification.save();
 
-    // Send email notification to the client
-    const transporter = nodemailer.createTransport({
-      service: "Gmail",
-      auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS,
-      },
-    });
+    let emailSent = false;
+    try {
+      const transporter = nodemailer.createTransport({
+        service: "Gmail",
+        auth: {
+          user: process.env.EMAIL_USER,
+          pass: process.env.EMAIL_PASS,
+        },
+        connectionTimeout: 10000,
+        greetingTimeout: 10000,
+        socketTimeout: 15000,
+      });
 
-    const mailOptions = {
-      from: `"Opaleka Team" <${process.env.EMAIL_USER}>`,
-      to: client.email,
-      subject: `✅ Job Completed - ${booking.serviceName}`,
-      html: `
-        <div style="font-family: Arial, sans-serif; padding: 20px; color: #333;">
-          <h2 style="color: #1a237e;">✅ Your Job is Completed</h2>
-          <p>Dear <strong>${client.name}</strong>,</p>
-          <p>Your booking for <strong>${booking.serviceName}</strong> has been successfully completed.</p>
+      const mailOptions = {
+        from: `"Veldt Team" <${process.env.EMAIL_USER}>`,
+        to: client.email,
+        subject: `✅ Job Completed - ${booking.serviceName}`,
+        html: `
+          <div style="font-family: Arial, sans-serif; padding: 20px; color: #333;">
+            <h2 style="color: #1a237e;">✅ Your Job is Completed</h2>
+            <p>Dear <strong>${client.name}</strong>,</p>
+            <p>Your booking for <strong>${booking.serviceName}</strong> has been successfully completed.</p>
 
-          <table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
-            <tr>
-              <td style="padding: 8px; border: 1px solid #e0e0e0; background-color: #f9f9f9; font-weight: bold;">📅 Date</td>
-              <td style="padding: 8px; border: 1px solid #e0e0e0;">${formattedDate}</td>
-            </tr>
-            <tr>
-              <td style="padding: 8px; border: 1px solid #e0e0e0; background-color: #f9f9f9; font-weight: bold;">⏰ Time</td>
-              <td style="padding: 8px; border: 1px solid #e0e0e0;">${formattedTime}</td>
-            </tr>
-            <tr>
-              <td style="padding: 8px; border: 1px solid #e0e0e0; background-color: #f9f9f9; font-weight: bold;">👤 Provider</td>
-              <td style="padding: 8px; border: 1px solid #e0e0e0;">${provider.name} (${provider.email})</td>
-            </tr>
-          </table>
+            <table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
+              <tr>
+                <td style="padding: 8px; border: 1px solid #e0e0e0; background-color: #f9f9f9; font-weight: bold;">📅 Date</td>
+                <td style="padding: 8px; border: 1px solid #e0e0e0;">${formattedDate}</td>
+              </tr>
+              <tr>
+                <td style="padding: 8px; border: 1px solid #e0e0e0; background-color: #f9f9f9; font-weight: bold;">⏰ Time</td>
+                <td style="padding: 8px; border: 1px solid #e0e0e0;">${formattedTime}</td>
+              </tr>
+              <tr>
+                <td style="padding: 8px; border: 1px solid #e0e0e0; background-color: #f9f9f9; font-weight: bold;">👤 Provider</td>
+                <td style="padding: 8px; border: 1px solid #e0e0e0;">${provider.name} (${provider.email})</td>
+              </tr>
+            </table>
 
-          <p>We hope you had a great experience! Please take a moment to <strong>rate your service provider</strong>.</p>
-          <p>Your feedback helps improve the quality of services on Opaleka.</p>
+            <p>We hope you had a great experience! Please take a moment to <strong>rate your service provider</strong>.</p>
+            <p>Your feedback helps improve the quality of services on Veldt.</p>
 
-          <p>Best Regards,</p>
-          <p><strong>Opaleka Team</strong></p>
-        </div>
-      `,
-    };
+            <p>Best Regards,</p>
+            <p><strong>Veldt Team</strong></p>
+          </div>
+        `,
+      };
 
-    await transporter.sendMail(mailOptions);
+      await Promise.race([
+        transporter.sendMail(mailOptions),
+        new Promise((_, reject) => setTimeout(() => reject(new Error("Email timeout")), 15000))
+      ]);
 
-    res.status(200).json({
+      emailSent = true;
+    } catch (emailErr) {
+      console.error("Email failed (but job completed):", emailErr);
+    }
+
+    return res.status(200).json({
       success: true,
-      message: "Job marked as completed, pending rating updated, email notification sent to the client.",
+      message: "Job marked as completed" + (emailSent ? ". Email sent." : ". Email could not be sent."),
     });
+
   } catch (error) {
     console.error("Error completing job:", error);
-    res.status(500).json({ success: false, message: "Internal server error." });
+    return res.status(500).json({ success: false, message: "Server error." });
   }
 };
-
 exports.deleteCompletedJob = async (req, res) => {
   const { bookingId } = req.params;
   const userId = req.user.id; // Get authenticated user ID
