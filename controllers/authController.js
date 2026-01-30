@@ -984,39 +984,67 @@ exports.updatePaymentStatus = async (req, res) => {
 exports.getUserDetails = async (req, res) => {
   try {
     if (!req.user || !req.user.id) {
-      console.error("req.user is undefined or missing 'id':", req.user);
-      return res.status(400).json({
-        success: false,
-        message: "Invalid user details.",
-      });
+      return res.status(401).json({ success: false, message: "Unauthorized - no user ID" });
     }
 
-    const user = await User.findById(req.user.id).lean(); // Use lean() for plain object
+    const userId = req.user.id;
+
+    // Fetch user (basic fields)
+    const user = await User.findById(userId)
+      .select("name email role phone profileImage businessName")
+      .lean();
+
     if (!user) {
-      return res.status(404).json({ 
-        success: false, 
-        message: "User not found." 
-      });
+      return res.status(404).json({ success: false, message: "User not found" });
     }
 
-    // Include profileImage in the response
- const userDetails = {
-  id: user._id,
-  name: user.name,
-  email: user.email,
-  phone: user.phone || "",           // ← add this
-  role: user.role,
-  profileImage: user.profileImage
-};
-    res.status(200).json({
+    // Fetch complete profile if exists
+    let completeProfile = await CompleteProfile.findOne({ userId })
+      .select("businessAddress town yearsOfExperience services operatingHours socialLinks images description")
+      .lean();
+
+    // If no profile exists → return empty but valid structure
+    if (!completeProfile) {
+      completeProfile = {
+        businessAddress: "",
+        town: "",
+        yearsOfExperience: "",
+        services: [],
+        operatingHours: {},
+        socialLinks: {},
+        images: [],
+        description: ""
+      };
+    }
+
+    // Fix image URLs (make absolute)
+    if (completeProfile.images && Array.isArray(completeProfile.images)) {
+      completeProfile.images = completeProfile.images.map(img => {
+        if (!img) return null;
+        if (img.startsWith('http')) return img;
+        return `https://service-booking-backend-eb9i.onrender.com/${img.replace(/\\/g, '/')}`;
+      }).filter(Boolean);
+    }
+
+    // Build full response
+    const response = {
       success: true,
-      user: userDetails,
-    });
+      user: {
+        ...user,
+        id: user._id,           // ensure id is there
+        completeProfile,        // ← this is what frontend needs!
+      }
+    };
+
+    console.log("Returning full user details:", JSON.stringify(response, null, 2));
+
+    res.status(200).json(response);
   } catch (error) {
-    console.error("Error fetching user details:", error);
+    console.error("Error in getUserDetails:", error);
     res.status(500).json({
       success: false,
-      message: "Failed to fetch user details.",
+      message: "Failed to fetch user details",
+      error: error.message
     });
   }
 };
