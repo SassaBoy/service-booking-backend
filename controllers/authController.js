@@ -1000,14 +1000,14 @@ exports.getUserDetails = async (req, res) => {
     }
 
     // Include profileImage in the response
-    const userDetails = {
-      id: user._id,
-      name: user.name,
-      email: user.email,
-      role: user.role,
-      profileImage: user.profileImage
-    };
-
+ const userDetails = {
+  id: user._id,
+  name: user.name,
+  email: user.email,
+  phone: user.phone || "",           // ← add this
+  role: user.role,
+  profileImage: user.profileImage
+};
     res.status(200).json({
       success: true,
       user: userDetails,
@@ -1153,63 +1153,61 @@ exports.updateUserDetails = async (req, res) => {
     const userId = req.user.id;
     const updates = req.body;
 
-    // Fetch user details
-    const user = await User.findById(userId);
+    // Fetch user with lean() for plain object (faster & cleaner)
+    let user = await User.findById(userId).lean();
     if (!user) {
-      return res.status(404).json({ 
-        success: false, 
-        message: "User not found." 
+      return res.status(404).json({
+        success: false,
+        message: "User not found."
       });
     }
-// Check if the email is being updated and already exists
-if (updates.email && updates.email !== user.email) {
-  const emailExists = await User.findOne({ email: updates.email });
-  if (emailExists) {
-    return res.status(400).json({
-      success: false,
-      message: "The email address is already in use by another account.",
-    });
-  }
-}
 
-   // Handle password update if provided
-if (updates.oldPassword && updates.newPassword) {
-  // Verify old password
-  const isValidPassword = await bcrypt.compare(updates.oldPassword, user.password);
-  if (!isValidPassword) {
-    // Return error for incorrect current password
-    return res.status(400).json({
-      success: false,
-      message: "Current password is incorrect."
-    });
-  }
-  
-  // Hash new password
-  const salt = await bcrypt.genSalt(10);
-  updates.password = await bcrypt.hash(updates.newPassword, salt);
-  
-  // Remove old and new password from updates object
-  delete updates.oldPassword;
-  delete updates.newPassword;
-}
+    // Prevent email duplication if changed
+    if (updates.email && updates.email !== user.email) {
+      const emailExists = await User.findOne({ email: updates.email });
+      if (emailExists) {
+        return res.status(400).json({
+          success: false,
+          message: "The email address is already in use by another account."
+        });
+      }
+    }
 
-    // Update basic user fields
+    // Handle password change (if provided)
+    if (updates.oldPassword && updates.newPassword) {
+      const isValidPassword = await bcrypt.compare(updates.oldPassword, user.password);
+      if (!isValidPassword) {
+        return res.status(400).json({
+          success: false,
+          message: "Current password is incorrect."
+        });
+      }
+
+      const salt = await bcrypt.genSalt(10);
+      updates.password = await bcrypt.hash(updates.newPassword, salt);
+
+      // Clean up temp password fields
+      delete updates.oldPassword;
+      delete updates.newPassword;
+    }
+
+    // Update allowed top-level fields
     const allowedUpdates = ['name', 'email', 'phone', 'password'];
-    allowedUpdates.forEach((field) => {
+    allowedUpdates.forEach(field => {
       if (updates[field] !== undefined) {
         user[field] = updates[field];
       }
     });
 
-    // If the user is a provider and completeProfile updates are provided
+    // Update or create completeProfile (for Providers)
+    let completeProfileDoc = null;
     if (user.role === "Provider" && updates.completeProfile) {
-      let completeProfile = await CompleteProfile.findOne({ userId: userId });
+      completeProfileDoc = await CompleteProfile.findOne({ userId });
 
-      if (completeProfile) {
+      if (completeProfileDoc) {
+        // Update existing
         const profileUpdates = updates.completeProfile;
-        
-        // Update allowed provider fields
-        const allowedProfileUpdates = [
+        const allowedProfileFields = [
           'businessAddress',
           'town',
           'yearsOfExperience',
@@ -1218,40 +1216,50 @@ if (updates.oldPassword && updates.newPassword) {
           'socialLinks'
         ];
 
-        allowedProfileUpdates.forEach((field) => {
+        allowedProfileFields.forEach(field => {
           if (profileUpdates[field] !== undefined) {
-            completeProfile[field] = profileUpdates[field];
+            completeProfileDoc[field] = profileUpdates[field];
           }
         });
 
-        await completeProfile.save();
+        await completeProfileDoc.save();
       } else {
-        // Create new complete profile if it doesn't exist
-        completeProfile = new CompleteProfile({
-          userId: userId,
+        // Create new
+        completeProfileDoc = new CompleteProfile({
+          userId,
           ...updates.completeProfile
         });
-        await completeProfile.save();
+        await completeProfileDoc.save();
       }
     }
 
-    // Save user updates
-    await user.save();
+    // Save updated user document
+    // We update the lean object, then save via findByIdAndUpdate to avoid issues
+    await User.findByIdAndUpdate(userId, user, { new: true, runValidators: true });
 
+    // Re-fetch the fresh user document (with latest data)
+    const updatedUser = await User.findById(userId)
+      .select('name email phone role profileImage')
+      .lean();
+
+    // Prepare clean completeProfile for response
+    const finalCompleteProfile = completeProfileDoc
+      ? await CompleteProfile.findOne({ userId }).lean()
+      : null;
+
+    // Final response – always include phone (even if empty)
     res.status(200).json({
       success: true,
       message: "User details updated successfully.",
       user: {
-        name: user.name,
-        email: user.email,
-        phone: user.phone,
-        role: user.role,
-        profileImage: user.profileImage,
-        completeProfile: await CompleteProfile.findOne({ userId: userId })
+        ...updatedUser,
+        phone: updatedUser.phone || "",                    // Ensure phone is always sent
+        completeProfile: finalCompleteProfile || {}        // safe fallback
       }
     });
+
   } catch (error) {
-    console.error("Error updating user details:", error);
+    console.error("Error updating user details:", error.stack || error);
     res.status(500).json({
       success: false,
       message: "Failed to update user details.",
@@ -1259,7 +1267,6 @@ if (updates.oldPassword && updates.newPassword) {
     });
   }
 };
-
 
 
 exports.sendNotification = async (req, res) => {
